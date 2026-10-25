@@ -1,4 +1,4 @@
-import { ArrowDownRight, CalendarDays, Heart, LockKeyhole, MapPin } from "lucide-react";
+import { ArrowDownRight, Heart, LockKeyhole, MapPin } from "lucide-react";
 import { BookingForm } from "@/components/booking-form";
 import { SiteHeader } from "@/components/site-header";
 import { EVENT } from "@/lib/event";
@@ -16,10 +16,6 @@ export default function HomePage() {
           </p>
 
           <div className="event-facts" aria-label="Session details">
-            <div className="event-fact">
-              <span className="event-fact__icon"><CalendarDays size={21} strokeWidth={1.8} /></span>
-              <div><span className="event-fact__label">BOOKABLE DATES</span><strong>{EVENT.dateRangeLabel}</strong></div>
-            </div>
             <div className="event-fact">
               <span className="event-fact__icon"><MapPin size={22} strokeWidth={1.8} /></span>
               <div><span className="event-fact__label">THE PLACE</span><strong>{EVENT.location}</strong></div>

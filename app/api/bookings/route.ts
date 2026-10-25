@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BookingConflictError, createBooking } from "@/lib/db";
+import { isSlotBookable } from "@/lib/event";
 import { bookingSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -20,7 +21,13 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message || "Please check the form and try again." },
-      { status: 400 },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (!isSlotBookable(parsed.data.date, parsed.data.slotId)) {
+    return NextResponse.json(
+      { error: "This date or time is no longer bookable. Please choose another." },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
 

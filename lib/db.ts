@@ -3,7 +3,6 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { neon } from "@neondatabase/serverless";
-import { EVENT } from "@/lib/event";
 import type { BookingInput } from "@/lib/validation";
 
 export type BookingRecord = BookingInput & {
@@ -13,6 +12,7 @@ export type BookingRecord = BookingInput & {
 
 type RawBooking = {
   id: number | string;
+  date: string;
   fullName: string;
   enrollmentNumber: string;
   department: string;
@@ -107,6 +107,7 @@ async function sqlite() {
 function normalize(row: RawBooking): BookingRecord {
   return {
     id: Number(row.id),
+    date: row.date,
     fullName: row.fullName,
     enrollmentNumber: row.enrollmentNumber,
     department: row.department,
@@ -117,48 +118,32 @@ function normalize(row: RawBooking): BookingRecord {
 }
 
 const bookingColumns = `
-  id, full_name AS "fullName", enrollment_number AS "enrollmentNumber",
+  id, event_date AS "date", full_name AS "fullName", enrollment_number AS "enrollmentNumber",
   department, semester, slot_id AS "slotId", created_at AS "createdAt"
 `;
 
-export async function getBookedSlotIds(): Promise<string[]> {
+export async function getBookedSlotIds(date: string): Promise<string[]> {
   if (mode() === "postgres") {
     await ensurePostgresSchema();
-    const rows = await sql()`SELECT slot_id FROM counselling_bookings WHERE event_date = ${EVENT.date}`;
+    const rows = await sql()`SELECT slot_id FROM counselling_bookings WHERE event_date = ${date}`;
     return (rows as unknown as { slot_id: string }[]).map((row) => String(row.slot_id));
   }
   const db = await sqlite();
-  const rows = db.prepare("SELECT slot_id FROM counselling_bookings WHERE event_date = ?").all(EVENT.date);
+  const rows = db.prepare("SELECT slot_id FROM counselling_bookings WHERE event_date = ?").all(date);
   return rows.map((row) => String(row.slot_id));
 }
 
-export async function listBookings(): Promise<BookingRecord[]> {
-  if (mode() === "postgres") {
-    await ensurePostgresSchema();
-    const rows = await sql()`
-      SELECT id, full_name AS "fullName", enrollment_number AS "enrollmentNumber",
-             department, semester, slot_id AS "slotId", created_at AS "createdAt"
-      FROM counselling_bookings WHERE event_date = ${EVENT.date}
-      ORDER BY id ASC
-    `;
-    return (rows as unknown as RawBooking[]).map(normalize);
-  }
-  const db = await sqlite();
-  const rows = db.prepare(`SELECT ${bookingColumns} FROM counselling_bookings WHERE event_date = ? ORDER BY id ASC`).all(EVENT.date);
-  return (rows as unknown as RawBooking[]).map(normalize);
-}
-
-async function enrollmentExists(enrollmentNumber: string): Promise<boolean> {
+async function enrollmentExists(date: string, enrollmentNumber: string): Promise<boolean> {
   if (mode() === "postgres") {
     const rows = await sql()`
       SELECT id FROM counselling_bookings
-      WHERE event_date = ${EVENT.date} AND enrollment_number = ${enrollmentNumber}
+      WHERE event_date = ${date} AND enrollment_number = ${enrollmentNumber}
       LIMIT 1
     `;
     return (rows as unknown as { id: number }[]).length > 0;
   }
   const db = await sqlite();
-  return Boolean(db.prepare("SELECT id FROM counselling_bookings WHERE event_date = ? AND enrollment_number = ?").get(EVENT.date, enrollmentNumber));
+  return Boolean(db.prepare("SELECT id FROM counselling_bookings WHERE event_date = ? AND enrollment_number = ?").get(date, enrollmentNumber));
 }
 
 function isUniqueViolation(error: unknown) {
@@ -175,8 +160,8 @@ export async function createBooking(input: BookingInput): Promise<BookingRecord>
         INSERT INTO counselling_bookings
           (event_date, full_name, enrollment_number, department, semester, slot_id)
         VALUES
-          (${EVENT.date}, ${input.fullName}, ${input.enrollmentNumber}, ${input.department}, ${input.semester}, ${input.slotId})
-        RETURNING id, full_name AS "fullName", enrollment_number AS "enrollmentNumber",
+          (${input.date}, ${input.fullName}, ${input.enrollmentNumber}, ${input.department}, ${input.semester}, ${input.slotId})
+        RETURNING id, event_date AS "date", full_name AS "fullName", enrollment_number AS "enrollmentNumber",
                   department, semester, slot_id AS "slotId", created_at AS "createdAt"
       `;
       return normalize((rows as unknown as RawBooking[])[0]);
@@ -187,12 +172,12 @@ export async function createBooking(input: BookingInput): Promise<BookingRecord>
       INSERT INTO counselling_bookings
         (event_date, full_name, enrollment_number, department, semester, slot_id)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(EVENT.date, input.fullName, input.enrollmentNumber, input.department, input.semester, input.slotId);
+    `).run(input.date, input.fullName, input.enrollmentNumber, input.department, input.semester, input.slotId);
     const row = db.prepare(`SELECT ${bookingColumns} FROM counselling_bookings WHERE id = ?`).get(Number(result.lastInsertRowid));
     return normalize(row as unknown as RawBooking);
   } catch (error) {
     if (isUniqueViolation(error)) {
-      const alreadyRegistered = await enrollmentExists(input.enrollmentNumber);
+      const alreadyRegistered = await enrollmentExists(input.date, input.enrollmentNumber);
       throw new BookingConflictError(alreadyRegistered ? "enrollment" : "slot");
     }
     throw error;

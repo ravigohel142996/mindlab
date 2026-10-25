@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { SLOTS } from "@/lib/event";
+import { isScheduledDate, SLOTS } from "@/lib/event";
 
 export const bookingSchema = z.object({
+  date: z.string().refine(isScheduledDate, "Please choose a date between 26 October and 31 December 2026."),
   fullName: z.string().trim().min(2, "Please enter your full name.").max(100),
   enrollmentNumber: z
     .string()

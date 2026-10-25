@@ -6,12 +6,14 @@ import {
   Clock3, Fingerprint, Layers3, LoaderCircle, LockKeyhole, MapPin,
   RefreshCw, UserRound,
 } from "lucide-react";
-import { EVENT, getSlotLabel, SLOTS } from "@/lib/event";
+import { DateCalendar } from "@/components/date-calendar";
+import { EVENT, formatBookingDate, getSlotLabel, SLOTS } from "@/lib/event";
 
 type SlotStatus = { id: string; available: boolean };
-type AvailabilityState = "loading" | "ready" | "error";
+type AvailabilityState = "idle" | "loading" | "ready" | "error";
 type Confirmation = {
   id: number;
+  date: string;
   fullName: string;
   enrollmentNumber: string;
   department: string;
@@ -23,37 +25,54 @@ const initialDetails = { fullName: "", enrollmentNumber: "", department: "", sem
 
 export function BookingForm() {
   const [details, setDetails] = useState(initialDetails);
+  const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [slots, setSlots] = useState<SlotStatus[]>([]);
-  const [availabilityState, setAvailabilityState] = useState<AvailabilityState>("loading");
+  const [availabilityState, setAvailabilityState] = useState<AvailabilityState>("idle");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const confirmationHeading = useRef<HTMLHeadingElement>(null);
+  const slotsRequest = useRef<AbortController | null>(null);
 
-  const refreshSlots = useCallback(async (signal?: AbortSignal) => {
+  const refreshSlots = useCallback(async (date: string) => {
+    slotsRequest.current?.abort();
+    const controller = new AbortController();
+    slotsRequest.current = controller;
+    setSlots([]);
+    setSelectedSlot("");
+    setAvailabilityState("loading");
     try {
-      const response = await fetch("/api/slots", { cache: "no-store", signal });
+      const response = await fetch(`/api/slots?date=${encodeURIComponent(date)}`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error("Availability couldn't be loaded.");
-      const data = await response.json() as { slots: SlotStatus[] };
+      const data = await response.json() as { date: string; slots: SlotStatus[] };
+      if (controller.signal.aborted || data.date !== date) return;
       setSlots(data.slots);
-      setSelectedSlot((current) => current && !data.slots.some((slot) => slot.id === current && slot.available) ? "" : current);
       setAvailabilityState("ready");
-    } catch (caught) {
-      if (caught instanceof Error && caught.name === "AbortError") return;
-      setAvailabilityState("error");
+    } catch {
+      if (!controller.signal.aborted) setAvailabilityState("error");
     }
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void refreshSlots(controller.signal);
-    return () => controller.abort();
-  }, [refreshSlots]);
+    if (!selectedDate) return;
+    void refreshSlots(selectedDate);
+    return () => slotsRequest.current?.abort();
+  }, [selectedDate, refreshSlots]);
 
   useEffect(() => {
     if (confirmation) confirmationHeading.current?.focus();
   }, [confirmation]);
+
+  function chooseDate(date: string) {
+    if (date === selectedDate) return;
+    slotsRequest.current?.abort();
+    setSelectedDate(date);
+    setSelectedSlot("");
+    setSlots([]);
+    setAvailabilityState("loading");
+    setError("");
+  }
 
   function updateDetail(field: keyof typeof initialDetails, value: string) {
     setDetails((current) => ({ ...current, [field]: value }));
@@ -62,19 +81,19 @@ export function BookingForm() {
 
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting || availabilityState !== "ready" || !selectedSlot) return;
+    if (submitting || availabilityState !== "ready" || !selectedDate || !selectedSlot) return;
     setSubmitting(true);
     setError("");
     try {
       const response = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...details, semester: Number(details.semester), slotId: selectedSlot, website: "" }),
+        body: JSON.stringify({ ...details, date: selectedDate, semester: Number(details.semester), slotId: selectedSlot, website: "" }),
       });
       const data = await response.json() as { booking?: Confirmation; error?: string };
       if (!response.ok || !data.booking) {
         setError(data.error || "Something went wrong. Please try again.");
-        if (response.status === 409) await refreshSlots();
+        if (response.status === 400 || response.status === 409) await refreshSlots(selectedDate);
         return;
       }
       setConfirmation(data.booking);
@@ -90,8 +109,7 @@ export function BookingForm() {
     setDetails(initialDetails);
     setSelectedSlot("");
     setError("");
-    setAvailabilityState("loading");
-    void refreshSlots();
+    if (selectedDate) void refreshSlots(selectedDate);
   }
 
   const availableCount = slots.filter((slot) => slot.available).length;
@@ -100,9 +118,9 @@ export function BookingForm() {
     <section className="booking-card" id="booking" aria-labelledby="booking-title">
       <div className="booking-card__header">
         <div className="booking-card__header-rings" aria-hidden="true" />
-        <div className="booking-card__eyebrow"><span className="eyebrow-dot" /> {EVENT.eyebrowDate}</div>
+        <div className="booking-card__eyebrow"><span className="eyebrow-dot" /> CHOOSE YOUR DAY · THROUGH DECEMBER 2026</div>
         <h2 id="booking-title">Counselling slots <span>at Mind Lab (MB107)</span></h2>
-        <p>Choose a time that works for you. We&apos;ll take care of the rest.</p>
+        <p>Choose a day and time that works for you. We&apos;ll take care of the rest.</p>
       </div>
 
       {confirmation ? (
@@ -116,7 +134,7 @@ export function BookingForm() {
             <div className="ticket__main"><Clock3 size={20} strokeWidth={1.8} /><strong>{getSlotLabel(confirmation.slotId)}</strong></div>
             <div className="ticket__line" />
             <div className="ticket__bottom">
-              <span><CalendarDays size={16} /> {EVENT.displayDate}</span>
+              <span><CalendarDays size={16} /> {formatBookingDate(confirmation.date)}</span>
               <span><MapPin size={16} /> {EVENT.location}</span>
             </div>
           </div>
@@ -160,11 +178,15 @@ export function BookingForm() {
             </div>
           </div>
 
-          <div className="form-section-heading form-section-heading--slots"><span className="form-section-heading__number">02</span><h3>Choose your time</h3><span className="form-section-heading__rule" /></div>
-          <div className="slots-intro"><span>All times are for {EVENT.displayDate}.</span><span className="slots-intro__count" aria-live="polite">{availabilityState === "ready" ? `${availableCount} of ${SLOTS.length} available` : availabilityState === "loading" ? "Checking times…" : "Times unavailable"}</span></div>
+          <div className="form-section-heading form-section-heading--date"><span className="form-section-heading__number">02</span><h3>Choose your date</h3><span className="form-section-heading__rule" /></div>
+          <DateCalendar selectedDate={selectedDate} onSelect={chooseDate} disabled={submitting} />
+          <p className="selected-date" aria-live="polite">{selectedDate ? <>Selected: <strong>{formatBookingDate(selectedDate)}</strong></> : "Select a date to see available times."}</p>
+
+          <div className="form-section-heading form-section-heading--slots"><span className="form-section-heading__number">03</span><h3>Choose your time</h3><span className="form-section-heading__rule" /></div>
+          <div className="slots-intro"><span>{selectedDate ? `All times are for ${formatBookingDate(selectedDate)}.` : "Choose your date first."}</span><span className="slots-intro__count" aria-live="polite">{availabilityState === "ready" ? `${availableCount} of ${SLOTS.length} available` : availabilityState === "loading" ? "Checking times…" : availabilityState === "error" ? "Times unavailable" : "Select a date"}</span></div>
 
           {availabilityState === "error" && (
-            <div className="inline-alert" role="alert"><AlertCircle size={18} /><span>We couldn&apos;t check availability. Please try again.</span><button type="button" onClick={() => { setAvailabilityState("loading"); void refreshSlots(); }} aria-label="Retry loading slots"><RefreshCw size={17} /></button></div>
+            <div className="inline-alert" role="alert"><AlertCircle size={18} /><span>We couldn&apos;t check availability. Please try again.</span><button type="button" onClick={() => void refreshSlots(selectedDate)} aria-label="Retry loading slots"><RefreshCw size={17} /></button></div>
           )}
 
           <div className="slot-grid" role="radiogroup" aria-label="Counselling time">
@@ -176,13 +198,13 @@ export function BookingForm() {
                   <input className="sr-only" type="radio" name="slotId" value={slot.id} checked={chosen} onChange={() => { setSelectedSlot(slot.id); setError(""); }} disabled={!available || submitting} aria-label={`${slot.start} to ${slot.end}${availabilityState === "ready" && !available ? ", fully booked" : ""}`} />
                   <span className="slot-card__top"><span>SLOT {slot.number}</span><span className="slot-card__radio" aria-hidden="true">{chosen && <Check size={12} strokeWidth={3} />}</span></span>
                   <span className="slot-card__time">{slot.start}<span> to {slot.end}</span></span>
-                  <span className={`slot-card__status${available ? " slot-card__status--open" : ""}`}><span className="slot-card__status-dot" />{availabilityState === "loading" ? "Checking" : available ? "Available" : availabilityState === "error" ? "Unavailable" : "Fully booked"}</span>
+                  <span className={`slot-card__status${available ? " slot-card__status--open" : ""}`}><span className="slot-card__status-dot" />{availabilityState === "idle" ? "Choose date" : availabilityState === "loading" ? "Checking" : available ? "Available" : availabilityState === "error" ? "Unavailable" : "Fully booked"}</span>
                 </label>
               );
             })}
           </div>
 
-          {availabilityState === "ready" && availableCount === 0 && <div className="full-message" role="status">All available times are booked. Please contact Mind Lab if you need assistance.</div>}
+          {availabilityState === "ready" && availableCount === 0 && <div className="full-message" role="status">No times are available for this day. Please choose another date.</div>}
           {error && <div className="form-error" role="alert"><AlertCircle size={18} strokeWidth={2} />{error}</div>}
           <button type="submit" className="submit-button" disabled={submitting || availabilityState !== "ready" || availableCount === 0 || !selectedSlot}>
             {submitting ? <>Reserving your slot <LoaderCircle size={19} className="spin" /></> : <>Confirm my slot <ArrowRight size={19} strokeWidth={2} /></>}

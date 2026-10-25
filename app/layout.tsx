@@ -10,7 +10,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Counselling Slots | Mind Lab · Marwadi University",
-  description: `Reserve a counselling slot at ${EVENT.location}, Marwadi University, on ${EVENT.displayDate}.`,
+  description: `Choose a counselling date and time at ${EVENT.location}, Marwadi University, from ${EVENT.dateRangeLabel}.`,
   robots: { index: false, follow: false },
 };
 

@@ -1,4 +1,4 @@
-import { ArrowDownRight, CalendarDays, Heart, LockKeyhole, MapPin, MoveUpRight } from "lucide-react";
+import { ArrowDownRight, CalendarDays, Heart, LockKeyhole, MapPin } from "lucide-react";
 import { BookingForm } from "@/components/booking-form";
 import { SiteHeader } from "@/components/site-header";
 import { EVENT } from "@/lib/event";
@@ -18,7 +18,7 @@ export default function HomePage() {
           <div className="event-facts" aria-label="Session details">
             <div className="event-fact">
               <span className="event-fact__icon"><CalendarDays size={21} strokeWidth={1.8} /></span>
-              <div><span className="event-fact__label">THE DATE</span><strong>{EVENT.displayDate}</strong></div>
+              <div><span className="event-fact__label">BOOKABLE DATES</span><strong>{EVENT.dateRangeLabel}</strong></div>
             </div>
             <div className="event-fact">
               <span className="event-fact__icon"><MapPin size={22} strokeWidth={1.8} /></span>
@@ -38,12 +38,6 @@ export default function HomePage() {
         </div>
         <div className="form-column"><BookingForm /></div>
       </main>
-      <footer className="site-footer">
-        <div className="shell site-footer__inner">
-          <span>© 2026 Marwadi University <span className="footer-separator">/</span> Mind Lab</span>
-          <span className="footer-message">A little time for what matters. <MoveUpRight size={14} aria-hidden="true" /></span>
-        </div>
-      </footer>
     </div>
   );
 }
